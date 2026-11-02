@@ -35,6 +35,14 @@ namespace upnp {
   static std::string
   status_string(int status) {
     switch (status) {
+#if MINIUPNPC_API_VERSION < 18
+      // Ubuntu 24.04 ships API 17: it documents numeric return values and
+      // has no separate private-WAN result (2 means disconnected, not private).
+      case 0: return "No IGD device found"s;
+      case 1: return "Valid connected IGD device found"s;
+      case 2: return "Valid IGD device found, but it isn't connected"s;
+      case 3: return "UPnP device found, but it wasn't recognized as an IGD"s;
+#else
       case UPNP_NO_IGD:
         return "No IGD device found"s;
       case UPNP_CONNECTED_IGD:
@@ -45,6 +53,7 @@ namespace upnp {
         return "Valid IGD device found, but it isn't connected"s;
       case UPNP_UNKNOWN_DEVICE:
         return "UPnP device found, but it wasn't recognized as an IGD"s;
+#endif
     }
 
     return "Unknown IGD status: "s + std::to_string(status);

@@ -19,8 +19,10 @@ set(BOOST_COMPONENTS
         log
         process
         program_options
+        regex
         system
         thread
+        uuid
 )
 # Networking uses Boost.System error codes and their compatibility target.
 
@@ -29,7 +31,6 @@ if(WIN32)
     list(APPEND BOOST_COMPONENTS
             algorithm
             preprocessor
-            uuid
     )
 endif()
 
@@ -114,6 +115,15 @@ if(NOT Boost_FOUND)
     foreach(component ${BOOST_COMPONENTS})
         list(APPEND Boost_LIBRARIES "Boost::${component}")
     endforeach()
+endif()
+
+# Boost.Format became header-only and stopped shipping a CMake package, so the
+# system-package path (find_package(Boost CONFIG ...)) leaves Boost::format
+# undefined even though <boost/format.hpp> is installed. The Windows
+# FetchContent path still defines the target, so this only fills the gap.
+if(NOT TARGET Boost::format AND TARGET Boost::headers)
+    add_library(Boost::format INTERFACE IMPORTED)
+    target_link_libraries(Boost::format INTERFACE Boost::headers)
 endif()
 
 # Keep the historical Boost::boost spelling available to dependencies

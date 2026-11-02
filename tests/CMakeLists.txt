@@ -7,6 +7,25 @@ include_directories("${CMAKE_SOURCE_DIR}")
 
 enable_testing()
 
+if(UNIX AND NOT APPLE AND X11_FOUND AND LIBSYSTEMD_FOUND)
+    # Exercise the production C++/GTK boundary on a private display. These tests
+    # must never modify the logged-in user's clipboard or start another host.
+    find_program(SUNSHINE_XVFB_RUN xvfb-run)
+    if(SUNSHINE_XVFB_RUN AND EXISTS "/usr/bin/python3")
+        add_executable(sunshine_x11_clipboard_probe
+                tools/x11_clipboard_probe.cpp
+                ${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_x11.cpp)
+        target_compile_definitions(sunshine_x11_clipboard_probe PRIVATE
+                SUNSHINE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/src_assets/linux/assets")
+        target_link_libraries(sunshine_x11_clipboard_probe PRIVATE Threads::Threads)
+        set_target_properties(sunshine_x11_clipboard_probe PROPERTIES CXX_STANDARD 23)
+        add_test(NAME x11_clipboard_integration COMMAND ${SUNSHINE_XVFB_RUN} -a
+                /usr/bin/python3 ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_x11_clipboard_helper.py
+                $<TARGET_FILE:sunshine_x11_clipboard_probe> -v)
+        set_tests_properties(x11_clipboard_integration PROPERTIES TIMEOUT 45)
+    endif()
+endif()
+
 if (WIN32)
     # Standalone MAT sender tests use a mock consumer, never an audio device.
     set(MAT_RECEIVER_TEST_SOURCES
@@ -625,6 +644,37 @@ if (WIN32)
             ${HDR_ENCODING_TEST_SOURCE}
             ${PRE_ENCODE_FILTER_TEST_SOURCE}
             ${TRUEHDR_ADAPTER_LOADER_TEST_SOURCE})
+    # vdd_edid, foreground_app and mic_queue are Linux-only target files (EDID
+    # synthesis for the KMS virtual display, compositor focus producers, the
+    # PulseAudio staging queue); their tests have nothing to link on Windows.
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_vdd_edid\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_vdd_instances\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_vdd_primary_plan\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_foreground_app\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_mic_queue\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_display_device_enum\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_edid\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_compositor_output\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_kscreen_modes\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_kscreen_backend\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_niri_ipc\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_mutter_display\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_xrandr_display\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_wlr_randr\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_display_backend\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_kwin_input_device\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_mirror_plan\.cpp")
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "test_video_hdr_analyzer\.cpp")
+else ()
+    # Windows-host test sources must not reach non-Windows builds.
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "/tests/unit/platform/windows/")
+
+    # The Mutter codec test builds sd-bus messages by hand, so it needs the
+    # session-bus headers. Without libsystemd the backend under test is the
+    # inert half, and there is nothing to assert.
+    if (NOT LIBSYSTEMD_FOUND)
+        list(FILTER TEST_SOURCES EXCLUDE REGEX "test_mutter_display\\.cpp")
+    endif ()
 endif ()
 
 set(SUNSHINE_SOURCES
