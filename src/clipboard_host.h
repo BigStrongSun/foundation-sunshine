@@ -33,8 +33,8 @@ namespace clipboard_host {
   /**
    * @brief Whether the image half is up, i.e. whether this session can apply
    *        and publish clipboard images.
-   * @details Always false off Wayland: images ride the compositor's
-   *          data-control protocol, which the klipper text path cannot reach.
+   * @details Available through Wayland data-control or the isolated X11 GTK
+   *          provider; false when neither provider is connected.
    *          Used to decide whether the image capability is advertised, so a
    *          client never sends frames nothing can service.
    */

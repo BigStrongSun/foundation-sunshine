@@ -91,7 +91,6 @@ if(CUDA_FOUND)
     include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/third-party/nvfbc")
     list(APPEND PLATFORM_TARGET_FILES
             "${CMAKE_SOURCE_DIR}/src/platform/linux/cuda.h"
-            "${CMAKE_SOURCE_DIR}/src/platform/linux/cuda.cu"
             "${CMAKE_SOURCE_DIR}/src/platform/linux/cuda.cpp"
             "${CMAKE_SOURCE_DIR}/third-party/nvfbc/NvFBC.h")
 
@@ -342,6 +341,12 @@ if(LIBSYSTEMD_FOUND)
                 "${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_data.h"
                 "${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_data.cpp"
                 "${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_mime.h")
+    endif()
+    if(X11_FOUND)
+        add_compile_definitions(SUNSHINE_BUILD_X11_CLIPBOARD)
+        list(APPEND PLATFORM_TARGET_FILES
+                "${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_x11.h"
+                "${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_x11.cpp")
     endif()
     add_compile_definitions(SUNSHINE_CLIPBOARD_HOST)
 else()

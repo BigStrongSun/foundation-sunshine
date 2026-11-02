@@ -7,6 +7,25 @@ include_directories("${CMAKE_SOURCE_DIR}")
 
 enable_testing()
 
+if(UNIX AND NOT APPLE AND X11_FOUND AND LIBSYSTEMD_FOUND)
+    # Exercise the production C++/GTK boundary on a private display. These tests
+    # must never modify the logged-in user's clipboard or start another host.
+    find_program(SUNSHINE_XVFB_RUN xvfb-run)
+    if(SUNSHINE_XVFB_RUN AND EXISTS "/usr/bin/python3")
+        add_executable(sunshine_x11_clipboard_probe
+                tools/x11_clipboard_probe.cpp
+                ${CMAKE_SOURCE_DIR}/src/platform/linux/clipboard_x11.cpp)
+        target_compile_definitions(sunshine_x11_clipboard_probe PRIVATE
+                SUNSHINE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/src_assets/linux/assets")
+        target_link_libraries(sunshine_x11_clipboard_probe PRIVATE Threads::Threads)
+        set_target_properties(sunshine_x11_clipboard_probe PROPERTIES CXX_STANDARD 23)
+        add_test(NAME x11_clipboard_integration COMMAND ${SUNSHINE_XVFB_RUN} -a
+                /usr/bin/python3 ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_x11_clipboard_helper.py
+                $<TARGET_FILE:sunshine_x11_clipboard_probe> -v)
+        set_tests_properties(x11_clipboard_integration PROPERTIES TIMEOUT 45)
+    endif()
+endif()
+
 if (WIN32)
     # Standalone MAT sender tests use a mock consumer, never an audio device.
     set(MAT_RECEIVER_TEST_SOURCES

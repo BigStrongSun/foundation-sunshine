@@ -12,9 +12,44 @@
 - This checkpoint verifies merge resolution and static route/platform checks,
   not a complete Linux or Windows build. Historical validation below belongs
   to the original Linux branch and must not be treated as validation of this merge.
-- Deployment target is Linux Mint 22.3 / Cinnamon X11. Its native clipboard
-  provider remains unimplemented; see the integration note in `LINUX_PORT_GAPS.md`.
+- Deployment target is Linux Mint 22.3 / Cinnamon X11; validation follows below.
 
+## Cinnamon X11 deployment validation — 2026-11-03
+
+The merged tree now has a native X11 clipboard provider. `clipboard_x11.cpp`
+starts an isolated GTK 3 Python helper from the installed assets directory;
+it uses bounded framed IPC, asynchronous selection reads, UTF-8 text and PNG,
+and closes inherited server sockets before spawning. GTK stays outside the
+Sunshine/tray main loop. Missing GTK/X11 fails gracefully. Runtime requires
+`/usr/bin/python3`, PyGObject (`python3-gi`) and GTK 3 introspection data.
+File clipboard synchronization is not implemented by this provider.
+
+Validation on Linux Mint 22.3 / Cinnamon X11 / NVIDIA, after merging PR #1054:
+
+- Release executable built with GCC 13, CUDA 13 (sm_89), Boost 1.92 fallback,
+  X11 enabled and Wayland/tray disabled. CUDA kernels now have a separate C++17
+  object target so shared C++23 features cannot leak into nvcc.
+- Fixed MiniUPnP API 17 compatibility and explicitly included Boost.UUID on Linux.
+- NVIDIA X11 display enumeration now reads RandR when that backend is selected;
+  sysfs exposed inactive/stale connector names despite an active desktop.
+- `ctest -R x11_clipboard_integration --output-on-failure`: passed. Its four
+  cases cover Unicode, invalid UTF-8 recovery, oversized frame rejection,
+  >1 MiB PNG transfer, fragmented input, echo suppression and helper shutdown.
+- Real Moonlight V+ 6.5.3 session: H.264 NVENC -> D3D11VA, 720p30; both directions
+  of Unicode text and PNG clipboard synchronization passed. Pixel color was
+  checked in both directions. Existing pairing was reused in an isolated client.
+- Installed independently under `~/foundation-sunshine-test/install`, separate
+  XDG config and `foundation-sunshine-test.service`; base port 48989, Web UI
+  48990, file mapping 49020. No autostart enabled. Web UI builds with Node 26.7.
+- Original packaged Sunshine remained active with its original PID and binary
+  checksum throughout; no package, system library, graphics driver or original
+  configuration/service was replaced. Newer libva needed by the bundled FFmpeg
+  was built privately, with its runtime path scoped to the test service.
+
+This verifies the stated X11 build and clipboard/SDR streaming path. It does not
+claim all Linux features, Wayland, HDR or Windows builds were tested. Initial
+Windows CI stopped while fetching MSYS2 repository metadata, before compiling;
+MAT regressions and VDD helper smoke jobs passed at the merge checkpoint.
 - **基线**：`linux-migration` 分支（包版本跟随二进制版本戳，如
   `2026.1022.161750.430c3c02-1`；同步链为 `ed415026`（上一个同步点，tag
   `v0.9.3-linux-upstream-sync` 指向 `0e2a6a11`）→ `7a0995e2`（2026-10-22，33 个提交）→

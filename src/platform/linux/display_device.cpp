@@ -1291,6 +1291,28 @@ namespace display_device {
 
   device_info_map_t
   enum_available_devices() {
+#if defined(SUNSHINE_BUILD_XRANDR)
+    // NVIDIA's proprietary X11 driver can expose stale DRM connector names
+    // and disabled CRTCs in sysfs. RandR describes the actual desktop that
+    // NVFBC captures, and uses the same output names as the X11 mode backend.
+    if (compositor_is_xrandr()) {
+      if (const auto state = platf::xrandr::query_state()) {
+        device_info_map_t devices;
+        for (const auto &output : state->outputs) {
+          if (!output.connected) continue;
+          device_info_t info;
+          info.display_name = output.name;
+          info.friendly_name = output.name;
+          info.device_state = output.enabled ?
+            (output.primary ? device_state_e::primary : device_state_e::active) :
+            device_state_e::inactive;
+          info.hdr_state = hdr_state_e::unknown;
+          devices.emplace(output.name, std::move(info));
+        }
+        if (!devices.empty()) return devices;
+      }
+    }
+#endif
     // Enumerate live DRM connectors from sysfs. The session flow matches
     // displays by connector name ("DP-1", "eDP-1", ...), and the headless /
     // stale-VDD checks rely on physical connectors being visible here.

@@ -22,6 +22,7 @@ set(BOOST_COMPONENTS
         regex
         system
         thread
+        uuid
 )
 # Networking uses Boost.System error codes and their compatibility target.
 
@@ -30,7 +31,6 @@ if(WIN32)
     list(APPEND BOOST_COMPONENTS
             algorithm
             preprocessor
-            uuid
     )
 endif()
 

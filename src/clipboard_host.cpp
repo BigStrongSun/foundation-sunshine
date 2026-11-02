@@ -47,6 +47,9 @@
 #ifdef SUNSHINE_BUILD_WAYLAND
   #include "src/platform/linux/clipboard_data.h"
 #endif
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+  #include "src/platform/linux/clipboard_x11.h"
+#endif
 #include "src/config.h"
 #include "src/logging.h"
 #include "src/platform/linux/sdbus_session.h"
@@ -79,15 +82,77 @@ namespace clipboard_host {
     constexpr const char *kKlipperChangeMatch =
       "type='signal',interface='org.kde.klipper.klipper',member='clipboardHistoryUpdated'";
 
+    void on_desktop_image(payload_t png);
+    void on_desktop_text(std::string text);
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
+    struct native_watcher_t {
+#ifdef SUNSHINE_BUILD_WAYLAND
+      std::unique_ptr<platf::clipboard_data::watcher_t> wayland;
+#endif
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+      std::unique_ptr<platf::clipboard_x11::watcher_t> x11;
+#endif
+      bool start() {
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+        x11 = std::make_unique<platf::clipboard_x11::watcher_t>();
+        if (x11->start(&on_desktop_image, &on_desktop_text)) return true;
+        x11.reset();
+#endif
+#ifdef SUNSHINE_BUILD_WAYLAND
+        if (platf::clipboard_data::available()) {
+          wayland = std::make_unique<platf::clipboard_data::watcher_t>();
+          if (wayland->start(&on_desktop_image, &on_desktop_text)) return true;
+          wayland.reset();
+        }
+#endif
+        return false;
+      }
+      bool alive() const {
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+        if (x11) return x11->alive();
+#endif
+#ifdef SUNSHINE_BUILD_WAYLAND
+        if (wayland) return true;
+#endif
+        return false;
+      }
+      bool set_image(payload_t bytes) {
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+        if (x11) return x11->set_image(std::move(bytes));
+#endif
+#ifdef SUNSHINE_BUILD_WAYLAND
+        if (wayland) return wayland->set_image(std::move(bytes));
+#endif
+        return false;
+      }
+      bool set_text(std::string text) {
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+        if (x11) return x11->set_text(std::move(text));
+#endif
+#ifdef SUNSHINE_BUILD_WAYLAND
+        if (wayland) return wayland->set_text(std::move(text));
+#endif
+        return false;
+      }
+      void stop() {
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+        if (x11) x11->stop();
+#endif
+#ifdef SUNSHINE_BUILD_WAYLAND
+        if (wayland) wayland->stop();
+#endif
+      }
+    };
+#endif
     std::atomic<bool> running { false };
     std::thread poll_thread;
 
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
     /// Compositor half (desktop <-> clients): always images, and text too when
     /// klipper is absent. Null when the session has no data-control protocol.
     /// Guarded by watcher_mu: the enet control thread, the RTSP thread and the
     /// shutdown path all reach it.
-    std::shared_ptr<platf::clipboard_data::watcher_t> data_watcher;
+    std::shared_ptr<native_watcher_t> data_watcher;
     std::mutex watcher_mu;
     /// True when this desktop has no klipper, so text must go through the
     /// compositor as well (niri, sway, Hyprland, plain weston).
@@ -155,7 +220,7 @@ namespace clipboard_host {
       });
     }
 
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
     /**
      * @brief Copy the current compositor provider handle.
      * @details Holding the shared_ptr keeps the watcher alive for the duration
@@ -163,7 +228,7 @@ namespace clipboard_host {
      *          raw unique_ptr it used to be was read and reset from three
      *          threads without synchronisation.
      */
-    std::shared_ptr<platf::clipboard_data::watcher_t>
+    std::shared_ptr<native_watcher_t>
     watcher_snapshot() {
       std::lock_guard<std::mutex> lk { watcher_mu };
       return data_watcher;
@@ -246,7 +311,7 @@ namespace clipboard_host {
         clipboard_wire::encode(kind, 0, std::span<const std::uint8_t> { bytes }));
     }
 
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
     /// Cheap content identity for the "unchanged picture" test; the bytes are
     /// too large to keep around just to compare.
     std::size_t
@@ -407,7 +472,7 @@ namespace clipboard_host {
         echo_ring.record(clipboard_bridge::kKindText, bytes);
       }
 
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
       if (ext_text.load(std::memory_order_acquire)) {
         // No klipper here: publish through the compositor and remember the
         // value, so the selection event our own write produces is dropped both
@@ -522,7 +587,7 @@ namespace clipboard_host {
       auto last_read = std::chrono::steady_clock::now() - kPollInterval;  // read immediately
 
       while (running.load(std::memory_order_acquire)) {
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
         if (ext_text.load(std::memory_order_acquire)) {
           // The compositor carries text now; this thread has nothing to read.
           // It still stamps liveness, which is what gates the wire capability.
@@ -532,7 +597,8 @@ namespace clipboard_host {
           }
           klipper_available = false;
           change_signal_subscribed = false;
-          clipboard_bridge::bridge_t::instance().notify_gui_alive();
+          const auto native = watcher_snapshot();
+          if (native && native->alive()) clipboard_bridge::bridge_t::instance().notify_gui_alive();
 
           std::unique_lock<std::mutex> lk { write_mu };
           write_cv.wait_for(lk, kBusWaitInterval, [&] {
@@ -710,10 +776,10 @@ namespace clipboard_host {
       return;
     }
 
-#ifdef SUNSHINE_BUILD_WAYLAND
-    if (platf::clipboard_data::available()) {
-      auto watcher = std::make_shared<platf::clipboard_data::watcher_t>();
-      if (watcher->start(&on_desktop_image, &on_desktop_text)) {
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
+    {
+      auto watcher = std::make_shared<native_watcher_t>();
+      if (watcher->start()) {
         {
           std::lock_guard<std::mutex> lk { watcher_mu };
           data_watcher = watcher;
@@ -721,17 +787,18 @@ namespace clipboard_host {
 
         // klipper is the text transport only while the desktop has it. Probe
         // once, before the poll thread starts, so both halves agree.
-        if (!klipper_present()) {
+        if (!klipper_present()
+#ifdef SUNSHINE_BUILD_X11_CLIPBOARD
+            || watcher->x11 != nullptr
+#endif
+        ) {
           ext_text.store(true, std::memory_order_release);
-          BOOST_LOG(info) << "Host clipboard: no klipper on this desktop; text goes through the compositor"sv;
+          BOOST_LOG(info) << "Host clipboard: native desktop provider handles text and images"sv;
         }
       }
       else {
-        BOOST_LOG(warning) << "Host clipboard: data-control provider failed to start; klipper only"sv;
+        BOOST_LOG(warning) << "Host clipboard: native desktop provider unavailable; trying klipper"sv;
       }
-    }
-    else {
-      BOOST_LOG(info) << "Host clipboard: no data-control protocol on this session; image sync off"sv;
     }
 #else
     if (!klipper_present()) {
@@ -769,11 +836,11 @@ namespace clipboard_host {
       poll_thread.join();
     }
 
-#ifdef SUNSHINE_BUILD_WAYLAND
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
     // After the poll thread: the watcher only publishes towards clients, so
     // stopping it last cannot race a text publish. Taking ownership out of the
     // shared slot keeps it alive while it stops.
-    std::shared_ptr<platf::clipboard_data::watcher_t> watcher;
+    std::shared_ptr<native_watcher_t> watcher;
     {
       std::lock_guard<std::mutex> lk { watcher_mu };
       watcher = std::move(data_watcher);
@@ -789,8 +856,9 @@ namespace clipboard_host {
 
   bool
   image_available() {
-#ifdef SUNSHINE_BUILD_WAYLAND
-    return watcher_snapshot() != nullptr;
+#if defined(SUNSHINE_BUILD_WAYLAND) || defined(SUNSHINE_BUILD_X11_CLIPBOARD)
+    const auto watcher = watcher_snapshot();
+    return watcher && watcher->alive();
 #else
     return false;
 #endif

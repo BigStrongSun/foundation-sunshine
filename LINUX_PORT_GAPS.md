@@ -3,13 +3,13 @@
 ## Fork integration note — 2026-11-03
 
 The historical "zero remaining items" verdict below applies to the original
-Arch/KDE/Wayland scope. It does not cover Cinnamon X11 on Linux Mint 22.3.
-The current clipboard host uses KDE Klipper or Wayland data-control; native
-Cinnamon/X11 clipboard synchronization still needs a provider and end-to-end
-text/image, echo suppression and reconnect verification. Merging PR #1054 into
-upstream `master` does not by itself close this gap. No remote installation or
-driver changes are part of this integration checkpoint.
-
+Arch/KDE/Wayland scope. The Cinnamon X11 gap is now closed for bidirectional
+UTF-8 text and PNG: native GTK/X11 selection support and real Moonlight tests
+passed on Mint 22.3. See the deployment validation section of the migration
+report. File clipboard offers remain unsupported on this host provider.
+The test installation uses a separate prefix, service, configuration and ports;
+the original Sunshine package and service remain untouched. Wayland and HDR
+were not part of this additional validation.
 - **基线**：`linux-migration` 分支（包版本跟随二进制版本戳，如
   `2026.1022.161750.430c3c02-1`；2026-10-22 已并入上游 `origin/master` `3c194184`，
   上一个同步点是 `ed415026`）
